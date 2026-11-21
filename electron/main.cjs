@@ -7,7 +7,7 @@ const { Settings } = require('./settings.cjs');
 const { Firewall } = require('./firewall.cjs');
 
 const DEV = process.env.WATCHTOWER_DEV === '1';
-const ICON = path.join(__dirname, '..', 'build', 'icon.ico');
+const ICON = path.join(__dirname, '..', 'build', 'icon.ico').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
 
 // Proper app identity: own taskbar entry, notifications say "Watchtower"
 app.setName('Watchtower');

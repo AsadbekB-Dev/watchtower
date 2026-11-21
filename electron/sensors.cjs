@@ -6,9 +6,12 @@
 const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+
+// In the installed app, scripts live in app.asar.unpacked so PowerShell can read them
+const scriptPath = (name) => path.join(__dirname, 'scripts', name).replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
 const { identify } = require('./names.cjs');
 
-const SCRIPT = path.join(__dirname, 'scripts', 'sensors.ps1');
+const SCRIPT = scriptPath('sensors.ps1');
 const KEEP_DAYS = 400;
 const MAX_SESSIONS = 8000;
 

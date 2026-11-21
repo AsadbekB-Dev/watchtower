@@ -4,6 +4,12 @@
 
 Built solo at **HackCC 2026** (Nov 21–22).
 
+## Download
+
+**[Download Watchtower for Windows](https://github.com/AsadbekB-Dev/watchtower/releases/latest)**: grab `Watchtower-Setup-1.0.0.exe` from the latest release and run it. No Node.js or terminal needed.
+
+The installer isn't code-signed yet, so Windows may show **"Windows protected your PC."** Click **More info → Run anyway**.
+
 ## Why
 
 Windows quietly logs every time an app touches your mic, camera or location, and your PC talks to dozens of servers, trackers and ad networks all day. That information is buried several menus deep, or doesn't exist in a readable form at all. Most people (students, families, older relatives) never see any of it.
@@ -23,7 +29,7 @@ Watchtower puts it in one place, explains it, and helps you act on it.
 - **Alerts:** a Windows notification when an app starts using your mic or camera.
 - **Local-first:** no account, no cloud database. Settings let you turn off map lookups and AI entirely.
 
-## Run it
+## Run from source
 
 Requires Windows 10/11 and Node.js 18+.
 
@@ -39,6 +45,8 @@ npm run shortcut
 ```
 
 Closing the window fully exits Watchtower. Re-run `npm run shortcut` after changing the code.
+
+To build the installer yourself: `npm run dist` (output goes to `release/`).
 
 Add a free Gemini API key from [Google AI Studio](https://aistudio.google.com) in **Settings**, or put it in a `key.txt` file in the project folder (it's git-ignored).
 

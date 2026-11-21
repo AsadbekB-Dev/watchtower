@@ -3,13 +3,16 @@
 // Slow path every ~20 s: PowerShell for exe paths (icons) and the DNS cache.
 const fs = require('fs');
 const path = require('path');
+
+// In the installed app, scripts live in app.asar.unpacked so PowerShell can read them
+const scriptPath = (name) => path.join(__dirname, 'scripts', name).replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
 const { execFile } = require('child_process');
 const { runPowerShell, parse } = require('./sensors.cjs');
 const { identify } = require('./names.cjs');
 const { classify } = require('./trackers.cjs');
 
-const PROCINFO = path.join(__dirname, 'scripts', 'procinfo.ps1');
-const FALLBACK = path.join(__dirname, 'scripts', 'connections.ps1');
+const PROCINFO = scriptPath('procinfo.ps1');
+const FALLBACK = scriptPath('connections.ps1');
 const GEO_FIELDS = 'status,message,country,countryCode,city,lat,lon,isp,org,as,query';
 const SLOW_EVERY_MS = 20000;
 
