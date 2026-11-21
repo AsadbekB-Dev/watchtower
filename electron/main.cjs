@@ -1,0 +1,186 @@
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const path = require('path');
+const { scan, History } = require('./sensors.cjs');
+const { Network } = require('./network.cjs');
+const { Gemini } = require('./gemini.cjs');
+const { Settings } = require('./settings.cjs');
+
+const DEV = process.env.WATCHTOWER_DEV === '1';
+let win = null;
+let history = null;
+let scanning = null;
+let lastGoodSensors = null;
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1360,
+    height: 860,
+    minWidth: 1040,
+    minHeight: 680,
+    backgroundColor: '#07090d',
+    title: 'Watchtower',
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  win.once('ready-to-show', () => win.show());
+
+  // Show renderer warnings/errors in the terminal so bugs are easy to report
+  win.webContents.on('console-message', (_e, level, message, line, source) => {
+    if (level >= 2) console.log(`[renderer] ${message} (${String(source).split('/').pop()}:${line})`);
+  });
+  win.webContents.on('render-process-gone', (_e, d) => console.log('[renderer] gone:', d.reason));
+  win.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools();
+  });
+
+  // Lock navigation to our own page
+  win.webContents.on('will-navigate', (e, url) => {
+    const ok = DEV ? url.startsWith('http://localhost:5173') : url.startsWith('file://');
+    if (!ok) e.preventDefault();
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  if (DEV) win.loadURL('http://localhost:5173');
+  else win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+}
+
+ipcMain.handle('sensors:scan', async () => {
+  // Don't stack PowerShell runs if a scan is slow
+  if (!scanning) {
+    scanning = scan()
+      .then((result) => {
+        history.merge(result.sessions, result.now);
+        lastGoodSensors = result;
+        return { ok: true, ...result, sessions: history.sessions };
+      })
+      // Keep showing the last good read; the banner says the latest check failed
+      .catch((e) => ({ ...(lastGoodSensors || { apps: [], settings: {} }), ok: false, error: e.message, sessions: history.sessions }))
+      .finally(() => {
+        scanning = null;
+      });
+  }
+  return scanning;
+});
+
+let network = null;
+let gemini = null;
+
+let settings = null;
+
+const aiOff = () => ({ ok: false, error: 'AI is turned off in Settings.', code: 'AI_OFF' });
+ipcMain.handle('ai:status', () => ({ ...gemini.status(), enabled: settings.get().aiEnabled }));
+ipcMain.handle('ai:setKey', (_e, k) => {
+  try {
+    return { ok: true, ...gemini.setKey(k) };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+ipcMain.handle('ai:removeKey', () => ({ ok: true, ...gemini.removeKey() }));
+ipcMain.handle('ai:test', async () => {
+  if (!settings.get().aiEnabled) return aiOff();
+  try {
+    const t = await gemini.call('Reply with exactly: Watchtower is connected.', { maxTokens: 30, timeoutMs: 8000, rounds: 1 });
+    return { ok: true, text: t, model: gemini.model };
+  } catch (e) {
+    return { ok: false, error: e.message, code: e.code || null };
+  }
+});
+ipcMain.handle('ai:explainPlace', async (_e, details) => {
+  if (!settings.get().aiEnabled) return aiOff();
+  try {
+    return { ok: true, result: await gemini.explainPlace(details) };
+  } catch (e) {
+    return { ok: false, error: e.message, code: e.code || null };
+  }
+});
+ipcMain.handle('ai:ask', async (_e, { question, context, history: chat }) => {
+  if (!settings.get().aiEnabled) return aiOff();
+  try {
+    return { ok: true, text: await gemini.ask(question, context, chat) };
+  } catch (e) {
+    return { ok: false, error: e.message, code: e.code || null };
+  }
+});
+
+ipcMain.handle('settings:get', () => ({ ...settings.get(), dataDir: app.getPath('userData') }));
+ipcMain.handle('settings:set', (_e, patch) => {
+  const v = settings.set(patch);
+  network.geoEnabled = v.geoLookups;
+  return { ...v, dataDir: app.getPath('userData') };
+});
+ipcMain.handle('data:clear', () => {
+  history.sessions = [];
+  history.save();
+  network.clear();
+  return true;
+});
+let netScanning = null;
+ipcMain.handle('network:scan', async () => {
+  if (!netScanning) {
+    netScanning = network
+      .scan()
+      .catch((e) => ({ ok: false, error: e.message, flows: [], home: network.home }))
+      .finally(() => {
+        netScanning = null;
+      });
+  }
+  return netScanning;
+});
+
+const iconCache = new Map();
+ipcMain.handle('app:icon', async (_e, exePath) => {
+  if (typeof exePath !== 'string' || !/\.exe$/i.test(exePath)) return null;
+  if (iconCache.has(exePath)) return iconCache.get(exePath);
+  // Old app versions no longer exist on disk; Windows would hand back a blank generic icon
+  if (!require('fs').existsSync(exePath)) {
+    iconCache.set(exePath, null);
+    return null;
+  }
+  try {
+    const img = await app.getFileIcon(exePath, { size: 'normal' });
+    const url = img.isEmpty() ? null : img.toDataURL();
+    iconCache.set(exePath, url);
+    return url;
+  } catch {
+    iconCache.set(exePath, null);
+    return null;
+  }
+});
+
+const SETTINGS_PAGES = {
+  microphone: 'ms-settings:privacy-microphone',
+  webcam: 'ms-settings:privacy-webcam',
+  location: 'ms-settings:privacy-location',
+};
+ipcMain.handle('settings:open', async (_e, cap) => {
+  const url = SETTINGS_PAGES[cap];
+  if (!url || process.platform !== 'win32') return false;
+  await shell.openExternal(url);
+  return true;
+});
+
+process.on('uncaughtException', (e) => console.error('[watchtower] uncaught:', e));
+
+app.whenReady().then(() => {
+  history = new History(path.join(app.getPath('userData'), 'watchtower-history.json'));
+  settings = new Settings(app.getPath('userData'));
+  network = new Network(app.getPath('userData'));
+  network.geoEnabled = settings.get().geoLookups;
+  gemini = new Gemini(app.getPath('userData'), path.join(__dirname, '..'));
+  createWindow();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});

@@ -1,0 +1,29 @@
+{
+  "name": "watchtower",
+  "productName": "Watchtower",
+  "version": "0.1.0",
+  "description": "See what your PC is secretly doing: who used your mic, camera and location, and where your data goes.",
+  "main": "electron/main.cjs",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron -c cyan,magenta \"vite\" \"wait-on tcp:5173 && cross-env WATCHTOWER_DEV=1 electron .\"",
+    "build": "vite build",
+    "start": "vite build && electron ."
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-globe.gl": "^2.27.2",
+    "three": "0.187.0",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1",
+    "vite": "^6.0.7",
+    "wait-on": "^8.0.1"
+  }
+}
