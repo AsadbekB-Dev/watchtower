@@ -5,3 +5,4 @@ out/
 key.txt
 *.log
 debug.json
+debug-network.json

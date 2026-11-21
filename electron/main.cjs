@@ -4,6 +4,7 @@ const { scan, History } = require('./sensors.cjs');
 const { Network } = require('./network.cjs');
 const { Gemini } = require('./gemini.cjs');
 const { Settings } = require('./settings.cjs');
+const { Firewall } = require('./firewall.cjs');
 
 const DEV = process.env.WATCHTOWER_DEV === '1';
 let win = null;
@@ -73,6 +74,23 @@ let network = null;
 let gemini = null;
 
 let settings = null;
+let firewall = null;
+
+ipcMain.handle('fw:list', () => firewall.list());
+ipcMain.handle('fw:block', async (_e, items) => {
+  try {
+    return { ok: true, blocked: await firewall.block(items) };
+  } catch (e) {
+    return { ok: false, error: e.message, blocked: firewall.list() };
+  }
+});
+ipcMain.handle('fw:unblock', async (_e, rules) => {
+  try {
+    return { ok: true, blocked: await firewall.unblock(rules) };
+  } catch (e) {
+    return { ok: false, error: e.message, blocked: firewall.list() };
+  }
+});
 
 const aiOff = () => ({ ok: false, error: 'AI is turned off in Settings.', code: 'AI_OFF' });
 ipcMain.handle('ai:status', () => ({ ...gemini.status(), enabled: settings.get().aiEnabled }));
@@ -123,10 +141,19 @@ ipcMain.handle('data:clear', () => {
   return true;
 });
 let netScanning = null;
+let lastDump = 0;
 ipcMain.handle('network:scan', async () => {
   if (!netScanning) {
     netScanning = network
       .scan()
+      .then((r) => {
+        // In dev, keep a snapshot in the project folder (git-ignored) for debugging
+        if (DEV && Date.now() - lastDump > 15000) {
+          lastDump = Date.now();
+          network.dumpDiagnostics(path.join(__dirname, '..', 'debug-network.json'));
+        }
+        return r;
+      })
       .catch((e) => ({ ok: false, error: e.message, flows: [], home: network.home }))
       .finally(() => {
         netScanning = null;
@@ -136,6 +163,19 @@ ipcMain.handle('network:scan', async () => {
 });
 
 const iconCache = new Map();
+// Windows returns the same blank "program" icon for exes without their own icon;
+// grab that one once so we can recognise it and show a letter avatar instead.
+let genericIcon;
+async function getGenericIcon() {
+  if (genericIcon !== undefined) return genericIcon;
+  try {
+    const img = await app.getFileIcon(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'dllhost.exe'), { size: 'normal' });
+    genericIcon = img.isEmpty() ? null : img.toDataURL();
+  } catch {
+    genericIcon = null;
+  }
+  return genericIcon;
+}
 ipcMain.handle('app:icon', async (_e, exePath) => {
   if (typeof exePath !== 'string' || !/\.exe$/i.test(exePath)) return null;
   if (iconCache.has(exePath)) return iconCache.get(exePath);
@@ -146,7 +186,8 @@ ipcMain.handle('app:icon', async (_e, exePath) => {
   }
   try {
     const img = await app.getFileIcon(exePath, { size: 'normal' });
-    const url = img.isEmpty() ? null : img.toDataURL();
+    let url = img.isEmpty() ? null : img.toDataURL();
+    if (url && url === (await getGenericIcon())) url = null;
     iconCache.set(exePath, url);
     return url;
   } catch {
@@ -172,6 +213,7 @@ process.on('uncaughtException', (e) => console.error('[watchtower] uncaught:', e
 app.whenReady().then(() => {
   history = new History(path.join(app.getPath('userData'), 'watchtower-history.json'));
   settings = new Settings(app.getPath('userData'));
+  firewall = new Firewall(app.getPath('userData'));
   network = new Network(app.getPath('userData'));
   network.geoEnabled = settings.get().geoLookups;
   gemini = new Gemini(app.getPath('userData'), path.join(__dirname, '..'));

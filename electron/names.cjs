@@ -103,6 +103,14 @@ function identify(a) {
   }
   const base = exeBase(a.path || a.id.replace(/#/g, '\\'));
   const lower = base.toLowerCase();
+  // Plain electron.exe is a dev build of some app: name it after the project folder
+  if (lower === 'electron' && a.path) {
+    const parts = a.path.split('\\');
+    const i = parts.findIndex((p) => p.toLowerCase() === 'node_modules');
+    const project = i > 0 ? parts[i - 1] : null;
+    if (project && project.toLowerCase() === 'hackcc') return { group: 'exe:watchtower', name: 'Watchtower (this app)', kind: 'app' };
+    if (project) return { group: `exe:electron-${project.toLowerCase()}`, name: `${project} (Electron app)`, kind: 'app' };
+  }
   let name = EXE[lower] || (a.description && a.description.trim()) || base.charAt(0).toUpperCase() + base.slice(1);
   if (name.length > 40) name = base;
   const winDir = /^c:\\windows\\/i.test(a.path || '');

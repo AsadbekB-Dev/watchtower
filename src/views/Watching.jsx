@@ -21,8 +21,9 @@ function ScoreRing({ score }) {
       </svg>
       <div className="score-num">
         <b>{score}</b>
-        <span>{word}</span>
+        <span>/ 100</span>
       </div>
+      <div className="score-word" style={{ color: tone }}>{word}</div>
     </div>
   );
 }
@@ -32,7 +33,7 @@ function Hero({ summary, range, setRange }) {
   return (
     <section className="hero">
       <div className="hero-text">
-        <div className="eyebrow">Last {RANGES[range].label}</div>
+        <div className="eyebrow">Last {RANGES[range].label} · from Windows' own privacy log</div>
         <h1>
           {apps === 0 ? (
             <>No app touched your mic, camera or location.</>
@@ -45,7 +46,7 @@ function Hero({ summary, range, setRange }) {
         <p className="hero-sub">
           {night > 0 ? <><b className="t-warn">{night}</b> at night · </> : <>None at night · </>}
           {background > 0 ? <><b className="t-warn">{background}</b> background program{background === 1 ? '' : 's'}</> : <>no background programs</>}
-          {' '}· read straight from Windows' own hidden log
+
         </p>
         <div className="seg">
           {Object.entries(RANGES).map(([k, v]) => (
@@ -162,6 +163,11 @@ export default function Watching({ data, now }) {
                 </div>
                 {f.night && <MoonIcon className="f-badge" />}
                 {f.level === 'live' && <span className="pulse" />}
+                {(f.level === 'warn' || f.level === 'live') && (
+                  <button className="btn ghost sm f-action" title={`Open Windows ${CAPS[f.cap].label.toLowerCase()} permissions`} onClick={() => window.watchtower?.openPrivacySettings(f.cap)}>
+                    Review
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -190,7 +196,8 @@ export default function Watching({ data, now }) {
                       {KIND_LABEL[s.kind] && <span className={`kind kind-${s.kind}`}>{KIND_LABEL[s.kind]}</span>}
                     </div>
                     <div className="feed-when">
-                      {fmtDay(s.start, now)} · {fmtTime(s.start)} → {live ? 'now' : fmtTime(s.stop)} · {fmtDuration(sessionEnd(s, now) - s.start)}
+                      {fmtDay(s.start, now)} · {fmtTime(s.start)}
+                      {live ? ' → now' : fmtTime(s.stop) !== fmtTime(s.start) ? ` → ${fmtTime(s.stop)}` : ''} · {fmtDuration(sessionEnd(s, now) - s.start)}
                     </div>
                   </div>
                   {isNight(s.start) && s.cap !== 'location' && <span className="chip chip-night"><MoonIcon width={12} height={12} /> Night</span>}

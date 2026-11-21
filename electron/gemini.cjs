@@ -30,7 +30,7 @@ class Gemini {
   keySource() {
     if (process.env.GEMINI_API_KEY) return 'environment variable';
     if (this.readKey(this.projectKey)) return 'key.txt in the project folder';
-    if (this.readKey(this.keyFile)) return 'saved in Settings';
+    if (this.readKey(this.keyFile)) return 'stored on this PC';
     return null;
   }
 

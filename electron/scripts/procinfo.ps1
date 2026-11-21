@@ -1,5 +1,7 @@
 # Watchtower: slow-changing details, fetched every ~20 seconds.
-# Process paths/descriptions (for icons and names) and the DNS cache (IP -> website name).
+# Process paths/descriptions (for icons and names) and the DNS cache, including
+# CNAME aliases: trackers usually hide behind them (securepubads.g.doubleclick.net
+# -> pubads-pagead.l.google.com -> IP), so the alias is the name that matters.
 
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -13,8 +15,9 @@ foreach ($p in Get-Process) {
 
 $dns = New-Object System.Collections.Generic.List[object]
 foreach ($r in (Get-DnsClientCache)) {
-  if ($r.Type -eq 1 -or $r.Type -eq 28) {
-    $dns.Add([pscustomobject]@{ name = [string]$r.Entry; ip = [string]$r.Data })
+  # 1 = A, 28 = AAAA, 5 = CNAME
+  if ($r.Type -eq 1 -or $r.Type -eq 28 -or $r.Type -eq 5) {
+    $dns.Add([pscustomobject]@{ entry = [string]$r.Entry; name = [string]$r.Name; data = [string]$r.Data; type = [int]$r.Type })
   }
 }
 

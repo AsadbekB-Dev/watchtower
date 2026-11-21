@@ -1,5 +1,6 @@
 export const CATEGORIES = {
-  ads: { label: 'Ad tracker', color: '#f43f5e' },
+  identity: { label: 'ID tracker', color: '#ff2d55' },
+  ads: { label: 'Ad tracker', color: '#f472b6' },
   analytics: { label: 'Analytics', color: '#fbbf24' },
   social: { label: 'Social tracker', color: '#a78bfa' },
   telemetry: { label: 'Telemetry', color: '#fb923c' },
@@ -7,6 +8,7 @@ export const CATEGORIES = {
 };
 
 export const CATEGORY_INFO = {
+  identity: 'Builds a lasting ID for you that follows you across sites and devices. Data brokers often sell these profiles.',
   ads: 'Ad companies follow what you view so they can target ads at you.',
   analytics: 'Measures how you use an app or website: clicks, time spent, what you looked at.',
   social: 'Social networks can recognize you across other sites and apps.',
@@ -67,6 +69,32 @@ export function placeDetails(flows, place, filterApp) {
 }
 
 export const isTracker = (f) => f.category !== 'normal';
+export const SEVERITY = { identity: 0, ads: 1, social: 2, analytics: 3, telemetry: 4, normal: 5 };
+
+// Cookie syncing: when one tracker loads, it calls others so they can match their IDs for you.
+// Through the browser that shows up as a burst of different ad/ID companies within seconds.
+export function syncBursts(flows, windowMs = 20000, minCompanies = 3) {
+  const byApp = new Map();
+  for (const f of flows) {
+    if (f.local || !['identity', 'ads', 'analytics', 'social'].includes(f.category)) continue;
+    (byApp.get(f.app) || byApp.set(f.app, []).get(f.app)).push(f);
+  }
+  const out = [];
+  for (const [app, list] of byApp) {
+    list.sort((a, b) => a.firstSeen - b.firstSeen);
+    let i = 0;
+    let best = null;
+    for (let j = 0; j < list.length; j++) {
+      while (list[j].firstSeen - list[i].firstSeen > windowMs) i++;
+      const companies = new Set(list.slice(i, j + 1).map((f) => f.company || f.domain || f.ip));
+      if (companies.size >= minCompanies && (!best || companies.size > best.companies.size)) {
+        best = { app, companies, start: list[i].firstSeen, end: list[j].firstSeen, identity: list.slice(i, j + 1).some((f) => f.category === 'identity') };
+      }
+    }
+    if (best) out.push({ ...best, companies: [...best.companies], seconds: Math.max(1, Math.round((best.end - best.start) / 1000)) });
+  }
+  return out.sort((a, b) => b.companies.length - a.companies.length);
+}
 
 export function summarizeFlows(flows, filterApp) {
   const remote = flows.filter((f) => !f.local && (!filterApp || f.app === filterApp));
@@ -99,7 +127,7 @@ export function summarizeFlows(flows, filterApp) {
     t.apps.add(f.app);
     tr.set(k, t);
   }
-  const trackers = [...tr.values()].map((t) => ({ ...t, apps: [...t.apps] }));
+  const trackers = [...tr.values()].map((t) => ({ ...t, apps: [...t.apps] })).sort((a, b) => SEVERITY[a.category] - SEVERITY[b.category]);
 
   // Destinations by country
   const byCountry = new Map();
@@ -112,5 +140,6 @@ export function summarizeFlows(flows, filterApp) {
   }
   const countriesList = [...byCountry.values()].sort((a, b) => b.n - a.n);
 
-  return { remote, active: active.length, countries: countries.size, companies: companies.size, trackerCount: trackerCompanies.size, apps: appList, trackers, countriesList };
+  const identityCount = new Set(remote.filter((f) => f.category === 'identity').map((f) => f.company || f.domain || f.ip)).size;
+  return { remote, identityCount, bursts: syncBursts(remote), active: active.length, countries: countries.size, companies: companies.size, trackerCount: trackerCompanies.size, apps: appList, trackers, countriesList };
 }

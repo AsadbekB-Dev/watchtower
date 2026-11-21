@@ -97,7 +97,7 @@ export default function Timeline({ sessions, now, range }) {
           <div className="tl-label">
             <AppIcon path={r.path} name={r.name} size={24} />
             <span className="tl-name" title={r.name}>{r.name}</span>
-            <span className="tl-dot" style={{ background: CAPS[r.cap].color }} title={CAPS[r.cap].label} />
+            <span className="tl-cap" style={{ color: CAPS[r.cap].color }}>{CAPS[r.cap].short}</span>
           </div>
           <div className="tl-track">
             {nt.map(([a, b]) => (

@@ -3,7 +3,7 @@ import DataGlobe from '../components/DataGlobe.jsx';
 import AppIcon from '../components/AppIcon.jsx';
 import AiExplain from '../components/AiExplain.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
-import { CATEGORIES, CATEGORY_INFO, fmtSpan, placeDetails, placeKey, portInfo, summarizeFlows } from '../lib/network.js';
+import { CATEGORIES, CATEGORY_INFO, SEVERITY, fmtSpan, placeDetails, placeKey, portInfo, summarizeFlows } from '../lib/network.js';
 import { KIND_LABEL } from '../lib/sensors.js';
 
 function ago(ms) {
@@ -12,12 +12,12 @@ function ago(ms) {
   return `${Math.round(d / 60000)} min ago`;
 }
 
-function PlacePanel({ details, picked, onClose }) {
+function PlacePanel({ details, picked, onClose, isBlocked, onBlock, busy }) {
   if (!details) return null;
   const groups = [...details.groups].sort((a, b) => {
     const pa = picked.flow && a.keys.includes(picked.flow) ? -1 : 0;
     const pb = picked.flow && b.keys.includes(picked.flow) ? -1 : 0;
-    return pa - pb || (a.category === 'normal') - (b.category === 'normal');
+    return pa - pb || SEVERITY[a.category] - SEVERITY[b.category];
   });
   return (
     <div className="place-panel">
@@ -61,6 +61,24 @@ function PlacePanel({ details, picked, onClose }) {
                 <div><span>Server</span>{g.ips.slice(0, 2).join(', ')}{g.ips.length > 2 ? ` +${g.ips.length - 2} more` : ''}</div>
                 <div><span>Status</span>{g.active ? <em className="on">Connected now · for {fmtSpan(g.lastSeen - g.firstSeen)}</em> : <>Last seen {ago(g.lastSeen)}</>}</div>
               </div>
+              <div className="pp-actions">
+                {isBlocked(g.name) ? (
+                  <span className="blocked-tag">⛔ Blocked</span>
+                ) : g.category !== 'normal' ? (
+                  <button className="btn danger sm" disabled={busy} onClick={() => onBlock([{ name: g.name, ips: g.ips, category: g.category }])}>Block this tracker</button>
+                ) : (
+                  <button
+                    className="btn ghost sm"
+                    disabled={busy}
+                    onClick={() => {
+                      const apps = g.apps.map(([n]) => n).join(', ');
+                      if (window.confirm(`${g.name} looks like regular traffic. Blocking it may break ${apps}. Block anyway?`)) onBlock([{ name: g.name, ips: g.ips, category: g.category }]);
+                    }}
+                  >
+                    Block…
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
@@ -82,7 +100,55 @@ export default function DataMap({ net, settings }) {
   const [qInfo, setQInfo] = useState(null);
   const [selected, setSelected] = useState(null);
   const [picked, setPicked] = useState(null);
-  const flows = net?.flows || [];
+  const [blocked, setBlocked] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    window.watchtower.firewall.list().then(setBlocked);
+  }, []);
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const blockedIps = useMemo(() => new Set(blocked.flatMap((b) => b.ips)), [blocked]);
+  const blockedNames = useMemo(() => new Set(blocked.map((b) => b.name)), [blocked]);
+  const isBlocked = (name) => blockedNames.has(String(name).replace(/[^A-Za-z0-9 .,()&+_-]/g, '').trim().slice(0, 60));
+
+  async function block(items) {
+    setBusy(true);
+    setToast({ kind: 'info', text: 'Windows will ask for permission to change the firewall…' });
+    const r = await window.watchtower.firewall.block(items);
+    setBusy(false);
+    setBlocked(r.blocked || []);
+    setToast(r.ok ? { kind: 'ok', text: `Blocked ${items.length === 1 ? items[0].name : `${items.length} trackers`}. Their connections are now refused by Windows Firewall.` } : { kind: 'err', text: r.error });
+  }
+
+  async function unblock(rules) {
+    setBusy(true);
+    const r = await window.watchtower.firewall.unblock(rules);
+    setBusy(false);
+    setBlocked(r.blocked || []);
+    setToast(r.ok ? { kind: 'ok', text: 'Unblocked.' } : { kind: 'err', text: r.error });
+  }
+
+  // Blocked servers drop off the globe and the lists right away
+  const allFlows = net?.flows || [];
+  const flows = useMemo(() => allFlows.filter((f) => !blockedIps.has(f.ip)), [allFlows, blockedIps]);
+
+  const blockAllTrackers = () => {
+    const by = new Map();
+    for (const f of flows) {
+      if (f.local || f.category === 'normal') continue;
+      const name = f.company || f.domain || f.ip;
+      const it = by.get(name) || { name, ips: [], category: f.category };
+      it.ips.push(f.ip);
+      by.set(name, it);
+    }
+    if (by.size) block([...by.values()]);
+  };
   const s = useMemo(() => summarizeFlows(flows, selected), [flows, selected]);
   const details = useMemo(() => (picked ? placeDetails(flows, picked.place, selected) : null), [flows, picked, selected]);
 
@@ -103,7 +169,8 @@ export default function DataMap({ net, settings }) {
           <div className="eyebrow">Live · this session</div>
           <h1 className="title">
             {selected ? <>{selected} talked to </> : <>Your PC talked to </>}<span className="grad">{s.companies} compan{s.companies === 1 ? 'y' : 'ies'}</span> in <span className="grad">{s.countries} countr{s.countries === 1 ? 'y' : 'ies'}</span>
-            {s.trackerCount > 0 && <>, including <span className="t-live">{s.trackerCount} trackers</span></>}.
+            {s.trackerCount > 0 && <>, including <span className="t-live">{s.trackerCount} tracker{s.trackerCount === 1 ? '' : 's'}</span></>}
+            {s.identityCount > 0 && <> ({s.identityCount} building an ID on you)</>}.
           </h1>
         </div>
         {selected && (
@@ -148,7 +215,8 @@ export default function DataMap({ net, settings }) {
             </div>
           )}
           {net && net.geoEnabled === false && <div className="q-badge">Map placement is off in Settings</div>}
-          {picked && details && <PlacePanel details={details} picked={picked} onClose={() => setPicked(null)} />}
+          {picked && details && <PlacePanel details={details} picked={picked} onClose={() => setPicked(null)} isBlocked={isBlocked} onBlock={block} busy={busy} />}
+          {toast && <div className={`toast ${toast.kind}`}>{toast.text}</div>}
           <div className="globe-stats">
             <Stat value={s.active} label="live connections" />
             <Stat value={s.countries} label="countries" />
@@ -179,8 +247,26 @@ export default function DataMap({ net, settings }) {
             </div>
           </div>
 
+          {s.bursts.length > 0 && (
+            <div className="side-block sync-block">
+              <h2>ID sharing spotted</h2>
+              {s.bursts.slice(0, 3).map((b) => (
+                <div key={b.app + b.start} className="sync-row">
+                  <div className="tr-name">{b.app}: {b.companies.length} ad{b.identity ? ' and ID' : ''} companies in {b.seconds}s</div>
+                  <div className="tr-meta">{b.companies.slice(0, 6).join(', ')}{b.companies.length > 6 ? ` +${b.companies.length - 6}` : ''}</div>
+                </div>
+              ))}
+              <div className="sync-note">When one tracker loads, it often calls others right away so they can match their IDs for you ("cookie syncing"). That's how your profile gets shared between companies. Where they send it after that happens on their servers, out of sight of any PC.</div>
+            </div>
+          )}
+
           <div className="side-block">
-            <h2>Trackers spotted</h2>
+            <div className="side-head">
+              <h2>Trackers spotted</h2>
+              {s.trackers.length > 0 && (
+                <button className="btn danger sm" disabled={busy} onClick={blockAllTrackers}>Block all ({s.trackers.length})</button>
+              )}
+            </div>
             {s.trackers.length === 0 ? (
               <div className="muted">None yet. Open a news site in your browser and watch.</div>
             ) : (
@@ -203,6 +289,24 @@ export default function DataMap({ net, settings }) {
               </div>
             )}
           </div>
+
+          {blocked.length > 0 && (
+            <div className="side-block">
+              <h2>Blocked by Watchtower</h2>
+              <div className="tracker-list">
+                {blocked.map((b) => (
+                  <div key={b.rule} className="tracker-row">
+                    <i style={{ background: (CATEGORIES[b.category] || CATEGORIES.normal).color }} />
+                    <div style={{ flex: 1 }}>
+                      <div className="tr-name">{b.name}</div>
+                      <div className="tr-meta">{b.ips.length} server{b.ips.length === 1 ? '' : 's'} · firewall rule</div>
+                    </div>
+                    <button className="btn ghost sm" disabled={busy} onClick={() => unblock([b.rule])}>Unblock</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="side-block">
             <h2>Countries</h2>
