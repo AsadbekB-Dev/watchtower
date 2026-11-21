@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Notification } = require('electron');
 const path = require('path');
 const { scan, History } = require('./sensors.cjs');
 const { Network } = require('./network.cjs');
@@ -7,6 +7,23 @@ const { Settings } = require('./settings.cjs');
 const { Firewall } = require('./firewall.cjs');
 
 const DEV = process.env.WATCHTOWER_DEV === '1';
+const ICON = path.join(__dirname, '..', 'build', 'icon.ico');
+
+// Proper app identity: own taskbar entry, notifications say "Watchtower"
+app.setName('Watchtower');
+if (process.platform === 'win32') app.setAppUserModelId('dev.asadbek.watchtower');
+
+// One Watchtower at a time: opening the shortcut again just brings the window back
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
+}
 let win = null;
 let history = null;
 let scanning = null;
@@ -20,6 +37,7 @@ function createWindow() {
     minHeight: 680,
     backgroundColor: '#07090d',
     title: 'Watchtower',
+    icon: ICON,
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -52,12 +70,42 @@ function createWindow() {
   else win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 }
 
+// Pop a Windows notification when an app starts using the mic or camera
+const liveSeen = new Set();
+let firstScan = true;
+function notifyNewUse(apps) {
+  const live = (apps || []).filter((a) => a.inUse && a.cap !== 'location');
+  const nowKeys = new Set(live.map((a) => a.key));
+  for (const a of live) {
+    if (liveSeen.has(a.key) || firstScan || !Notification.isSupported()) continue;
+    const h = new Date().getHours();
+    const night = h < (settings ? settings.get().nightEnd : 5) && h >= (settings ? settings.get().nightStart : 0);
+    const n = new Notification({
+      title: `${a.name} is using your ${a.cap === 'webcam' ? 'camera' : 'microphone'}`,
+      body: night ? 'This is happening during your night hours. Open Watchtower to review it.' : 'Open Watchtower to see the details.',
+      icon: ICON,
+    });
+    n.on('click', () => {
+      if (win) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      }
+    });
+    n.show();
+  }
+  liveSeen.clear();
+  for (const k of nowKeys) liveSeen.add(k);
+  firstScan = false;
+}
+
 ipcMain.handle('sensors:scan', async () => {
   // Don't stack PowerShell runs if a scan is slow
   if (!scanning) {
     scanning = scan()
       .then((result) => {
         history.merge(result.sessions, result.now);
+        notifyNewUse(result.apps);
         lastGoodSensors = result;
         return { ok: true, ...result, sessions: history.sessions };
       })
@@ -123,6 +171,15 @@ ipcMain.handle('ai:ask', async (_e, { question, context, history: chat }) => {
   if (!settings.get().aiEnabled) return aiOff();
   try {
     return { ok: true, text: await gemini.ask(question, context, chat) };
+  } catch (e) {
+    return { ok: false, error: e.message, code: e.code || null };
+  }
+});
+
+ipcMain.handle('ai:briefing', async (_e, { context, force }) => {
+  if (!settings.get().aiEnabled) return aiOff();
+  try {
+    return { ok: true, result: await gemini.briefing(context, force) };
   } catch (e) {
     return { ok: false, error: e.message, code: e.code || null };
   }
@@ -223,6 +280,5 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+// Closing the window fully exits Watchtower (no background process left running)
+app.on('window-all-closed', () => app.quit());

@@ -17,6 +17,10 @@ Watchtower puts it in one place, explains it, and helps you act on it.
 - **Gemini explains:** click any place on the globe and Gemini says who those servers are, why your apps talk to them, and whether it's worth worrying about.
 - **Ask Watchtower:** chat with Gemini about your own PC ("What did my PC do last night?"), grounded only in Watchtower's data.
 - **Quality globe:** real Earth imagery lit by the actual current position of the sun, city lights at night, and live cloud cover (updated every 3 hours).
+- **Block trackers:** one click adds a Windows Firewall rule (Windows asks for permission first); "Block all" handles every tracker at once, and anything can be unblocked.
+- **ID trackers and cookie syncing:** data brokers and identity trackers (LiveRamp, Oracle BlueKai, Lotame, ID5…) get their own category, and bursts of ad/ID companies connecting within seconds are flagged as likely ID sharing.
+- **Daily briefing:** Gemini sums up what your PC did and the one thing worth checking.
+- **Alerts:** a Windows notification when an app starts using your mic or camera.
 - **Local-first:** no account, no cloud database. Settings let you turn off map lookups and AI entirely.
 
 ## Run it
@@ -27,6 +31,14 @@ Requires Windows 10/11 and Node.js 18+.
 npm install
 npm run dev
 ```
+
+To install it like a normal app (Desktop + Start Menu shortcut, no terminal):
+
+```
+npm run shortcut
+```
+
+Closing the window fully exits Watchtower. Re-run `npm run shortcut` after changing the code.
 
 Add a free Gemini API key from [Google AI Studio](https://aistudio.google.com) in **Settings**, or put it in a `key.txt` file in the project folder (it's git-ignored).
 

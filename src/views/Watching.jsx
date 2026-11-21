@@ -3,6 +3,7 @@ import { CAPS, CAP_ORDER, KIND_LABEL, RANGES, findings, fmtAgo, fmtDay, fmtDurat
 import { ArrowIcon, MoonIcon, capIcon } from '../components/Icons.jsx';
 import AppIcon from '../components/AppIcon.jsx';
 import Timeline from '../components/Timeline.jsx';
+import Briefing from '../components/Briefing.jsx';
 
 function ScoreRing({ score }) {
   const r = 42;
@@ -119,7 +120,7 @@ function SensorCard({ cap, apps, recent, settings, now }) {
   );
 }
 
-export default function Watching({ data, now }) {
+export default function Watching({ data, now, net }) {
   const [range, setRange] = useState('30d');
   const apps = data?.apps || [];
   const sessions = data?.sessions || [];
@@ -143,6 +144,8 @@ export default function Watching({ data, now }) {
       {!data.ok && <div className="banner error">Couldn't read the Windows log: {data.error}</div>}
 
       <Hero summary={summary} range={range} setRange={setRange} />
+
+      <Briefing sensors={data} net={net} />
 
       <section className="sensor-grid">
         {CAP_ORDER.map((cap) => (
