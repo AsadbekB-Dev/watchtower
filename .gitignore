@@ -1,0 +1,7 @@
+node_modules/
+dist/
+out/
+.env
+key.txt
+*.log
+debug.json
