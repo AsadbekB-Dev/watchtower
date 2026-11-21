@@ -173,6 +173,35 @@ Explain this to the user. Return JSON with:
     return out;
   }
 
+  // Daily briefing: a short summary of what the PC did, refreshed at most every 30 minutes
+  async briefing(context, force) {
+    if (!force && this.lastBriefing && Date.now() - this.lastBriefing.at < 30 * 60000) return this.lastBriefing.result;
+    const prompt = `Current time on the user's PC: ${context.nowLocal}
+
+<watchtower_data>
+${context.text}
+</watchtower_data>
+
+Write the user's privacy briefing for today. Return JSON with:
+- "headline": under 14 words, the single most useful takeaway.
+- "points": exactly 3 short bullet strings (each under 22 words) covering the last 24 hours to 7 days: sensors, connections/trackers, anything unusual. Name real apps and times from the data.
+- "focus": one sentence: the one thing worth checking or doing, or "Nothing needs your attention right now."
+- "mood": "calm", "heads_up" or "alert".`;
+    const schema = {
+      type: 'OBJECT',
+      properties: {
+        headline: { type: 'STRING' },
+        points: { type: 'ARRAY', items: { type: 'STRING' } },
+        focus: { type: 'STRING' },
+        mood: { type: 'STRING', enum: ['calm', 'heads_up', 'alert'] },
+      },
+      required: ['headline', 'points', 'focus', 'mood'],
+    };
+    const result = await this.call(prompt, { schema, maxTokens: 600 });
+    this.lastBriefing = { at: Date.now(), result };
+    return result;
+  }
+
   // Ask Watchtower: free-form question answered from the PC's own data
   async ask(question, context, history) {
     const prompt = `Current time on the user's PC: ${context.nowLocal}

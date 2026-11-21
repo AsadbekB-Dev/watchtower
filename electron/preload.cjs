@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('watchtower', {
     removeKey: () => ipcRenderer.invoke('ai:removeKey'),
     test: () => ipcRenderer.invoke('ai:test'),
     ask: (question, context, history) => ipcRenderer.invoke('ai:ask', { question, context, history }),
+    briefing: (context, force) => ipcRenderer.invoke('ai:briefing', { context, force }),
   },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),

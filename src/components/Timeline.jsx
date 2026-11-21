@@ -129,10 +129,20 @@ export default function Timeline({ sessions, now, range }) {
         ))}
       </div>
       {hover && (
-        <div className="tooltip" style={{ left: hover.x + 14, top: hover.y + 14 }}>
+        <div
+          className="tooltip"
+          style={{
+            // Flip to the left/up near the window edges so it never gets squashed
+            left: hover.x + 260 > window.innerWidth ? hover.x - 254 : hover.x + 14,
+            top: hover.y + 120 > window.innerHeight ? hover.y - 110 : hover.y + 14,
+          }}
+        >
           <b>{hover.s.name}{KIND_LABEL[hover.s.kind] ? ` · ${KIND_LABEL[hover.s.kind]}` : ''}</b>
           <span style={{ color: CAPS[hover.s.cap].color }}>{CAPS[hover.s.cap].label}</span>
-          <span>{fmtDay(hover.s.start, now)} · {fmtTime(hover.s.start)} → {hover.s.stop ? fmtTime(hover.s.stop) : 'now'}</span>
+          <span>
+            {fmtDay(hover.s.start, now)} · {fmtTime(hover.s.start)}
+            {!hover.s.stop ? ' → now' : fmtTime(hover.s.stop) !== fmtTime(hover.s.start) ? ` → ${fmtTime(hover.s.stop)}` : ''}
+          </span>
           <span>{fmtDuration(sessionEnd(hover.s, now) - hover.s.start)}</span>
         </div>
       )}

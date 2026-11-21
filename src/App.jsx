@@ -110,7 +110,7 @@ export default function App() {
       <main className="main">
         {!window.watchtower && <div className="banner error">Open Watchtower through Electron (npm run dev), not a normal browser.</div>}
         <ErrorBoundary key={view} name={NAV.find((n) => n.id === view)?.label || 'Settings'}>
-          {view === 'watching' && <Watching data={sensors} now={now} />}
+          {view === 'watching' && <Watching data={sensors} now={now} net={net} />}
           {view === 'map' && <DataMap net={net} settings={settings} />}
           {view === 'ask' && <Ask sensors={sensors} net={net} goSettings={() => setView('settings')} />}
           {view === 'settings' && <SettingsView settings={settings} onChange={changeSettings} />}

@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c cyan,magenta \"vite\" \"wait-on tcp:5173 && cross-env WATCHTOWER_DEV=1 electron .\"",
     "build": "vite build",
-    "start": "vite build && electron ."
+    "start": "vite build && electron .",
+    "shortcut": "node scripts/make-shortcut.cjs"
   },
   "dependencies": {
     "react": "^18.3.1",
