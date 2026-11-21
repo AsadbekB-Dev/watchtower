@@ -49,6 +49,8 @@ export function buildContext(sensors, net) {
       const companies = [...new Set(flows.filter((x) => x.app === a.app).map((x) => x.company || x.domain || x.ip))].slice(0, 8);
       lines.push(`- ${a.app}${a.kind === 'system' ? ' (Windows)' : a.kind === 'background' ? ' (background)' : ''}: ${a.dests} destinations in ${a.countries} countries, ${a.trackers} trackers. Talks to: ${companies.join(', ')}`);
     }
+    if (s.identityCount) lines.push(`ID trackers / data brokers seen: ${s.identityCount}.`);
+    for (const b of s.bursts) lines.push(`Likely cookie syncing: ${b.app} connected to ${b.companies.length} ad/ID companies within ${b.seconds}s: ${b.companies.join(', ')}`);
     if (s.trackers.length) {
       lines.push('Trackers:');
       for (const t of s.trackers.slice(0, 20)) lines.push(`- ${t.name} (${t.category}) via ${t.apps.join(', ')}${t.country ? `, server in ${t.country}` : ''}`);

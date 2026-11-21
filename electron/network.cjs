@@ -56,6 +56,33 @@ function parseTasklist(text) {
   return map;
 }
 
+// ipconfig /displaydns -> [{ entry, name, type, data }]
+function parseDisplayDns(text) {
+  const out = [];
+  const lines = String(text).split(/\r?\n/);
+  let entry = null;
+  let name = null;
+  let type = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (/^-{6,}$/.test(line) && i > 0) {
+      entry = lines[i - 1].trim().toLowerCase();
+      continue;
+    }
+    const m = line.match(/^([A-Za-z0-9 ()]+?)\s*(?:\.\s*)+:\s*(.+)$/);
+    if (!m) continue;
+    const key = m[1].trim().toLowerCase();
+    const val = m[2].trim();
+    if (key === 'record name') name = val.toLowerCase();
+    else if (key === 'record type') type = Number(val);
+    else if (key.startsWith('a (host) record')) out.push({ entry, name, type: 1, data: val });
+    else if (key.startsWith('aaaa record')) out.push({ entry, name, type: 28, data: val });
+    else if (key.startsWith('cname record')) out.push({ entry, name, type: 5, data: val.toLowerCase() });
+  }
+  return out;
+}
+
 // "AS13335 Cloudflare, Inc." -> "Cloudflare, Inc."
 function networkName(geo) {
   if (!geo) return null;
@@ -104,12 +131,7 @@ class Network {
         const procs = Array.isArray(raw.procs) ? raw.procs : raw.procs ? [raw.procs] : [];
         const dns = Array.isArray(raw.dns) ? raw.dns : raw.dns ? [raw.dns] : [];
         this.procs = new Map(procs.map((p) => [Number(p.pid), { path: p.path, desc: p.desc }]));
-        const edgey = (n) => /(akamai|edgekey|edgesuite|fastly|cloudfront|trafficmanager|azureedge|1e100)/i.test(n);
-        for (const r of dns) {
-          if (!r.ip || !r.name) continue;
-          const cur = this.domains.get(r.ip);
-          if (!cur || (edgey(cur) && !edgey(r.name))) this.domains.set(r.ip, String(r.name).toLowerCase());
-        }
+        this.ingestDns(dns, 'powershell');
         this.lastSlow = Date.now();
       })
       .catch((e) => console.error('[watchtower] procinfo failed:', e.message))
@@ -164,7 +186,8 @@ class Network {
     if (process.platform !== 'win32') return this.snapshot(Date.now(), true);
 
     const [ns, tl] = await Promise.all([run('netstat', ['-ano', '-p', 'TCP']).catch(() => ''), run('tasklist', ['/fo', 'csv', '/nh']).catch(() => '')]);
-    const ns6 = await run('netstat', ['-ano', '-p', 'TCPv6']).catch(() => '');
+    const [ns6, dd] = await Promise.all([run('netstat', ['-ano', '-p', 'TCPv6']).catch(() => ''), run('ipconfig', ['/displaydns'], 8000).catch(() => '')]);
+    if (dd) this.ingestDns(parseDisplayDns(dd), 'ipconfig');
     let conns = [...parseNetstat(ns), ...parseNetstat(ns6)];
     const names = parseTasklist(tl);
 
@@ -175,7 +198,7 @@ class Network {
         const list = Array.isArray(raw.conns) ? raw.conns : raw.conns ? [raw.conns] : [];
         conns = list.filter((c) => c.ip && !isPrivate(c.ip)).map((c) => ({ ip: c.ip, port: c.port, pid: c.pid }));
         for (const c of list) if (c.proc && !names.has(c.pid)) names.set(c.pid, `${c.proc}.exe`);
-        for (const r of Array.isArray(raw.dns) ? raw.dns : []) if (r.ip && r.name && !this.domains.has(r.ip)) this.domains.set(r.ip, String(r.name).toLowerCase());
+        for (const r of Array.isArray(raw.dns) ? raw.dns : []) if (r.ip && r.name && !this.domains.has(r.ip)) this.domains.set(r.ip, new Set([String(r.name).toLowerCase()]));
         this.method = 'powershell';
       } catch (e) {
         throw new Error(`Couldn't read connections (netstat and PowerShell both failed): ${e.message}`);
@@ -212,9 +235,8 @@ class Network {
       }
       const key = `${app}|${c.ip}|${c.port}`;
       activeKeys.add(key);
-      const domain = this.domains.get(c.ip) || null;
       const geo = this.geoEnabled ? this.geo.get(c.ip) || null : null;
-      const cls = classify(domain, geo && geo.network);
+      const { domain, cls } = this.bestName(c.ip, geo);
       const prev = this.flows.get(key);
       this.flows.set(key, {
         key, app, kind, path: exePath, ip: c.ip, port: c.port, domain,
@@ -233,6 +255,66 @@ class Network {
     return this.snapshot(now, false);
   }
 
+  ingestDns(dns, source) {
+    // Follow CNAME aliases back to the names apps actually asked for
+    const aliasesOf = new Map(); // target -> [alias names]
+    for (const r of dns) {
+      if (Number(r.type) !== 5 || !r.data) continue;
+      const target = String(r.data).toLowerCase().replace(/\.$/, '');
+      for (const a of [r.name, r.entry]) {
+        if (!a) continue;
+        const alias = String(a).toLowerCase().replace(/\.$/, '');
+        if (alias !== target) (aliasesOf.get(target) || aliasesOf.set(target, []).get(target)).push(alias);
+      }
+    }
+    const expand = (name) => {
+      const out = new Set([name]);
+      const queue = [name];
+      while (queue.length && out.size < 12) {
+        for (const a of aliasesOf.get(queue.shift()) || []) if (!out.has(a)) out.add(a), queue.push(a);
+      }
+      return out;
+    };
+    for (const r of dns) {
+      if (Number(r.type) === 5 || !r.data) continue;
+      const ip = String(r.data).trim();
+      const set = this.domains.get(ip) || new Set();
+      for (const n of [r.entry, r.name]) {
+        if (!n) continue;
+        for (const x of expand(String(n).toLowerCase().replace(/\.$/, ''))) {
+          // Shared servers (Google, CDNs) collect many names; keep it bounded, but never drop tracker names
+          if (set.size < 24 || classify(x, null).category !== 'normal') set.add(x);
+        }
+      }
+      if (set.size) this.domains.set(ip, set);
+    }
+    this.dnsCounts = { ...(this.dnsCounts || {}), [source]: dns.length };
+  }
+
+  // Of all names seen for an IP, show a tracker name if there is one (that's what matters
+  // for privacy), otherwise the shortest name that isn't a CDN edge host.
+  bestName(ip, geo) {
+    const names = [...(this.domains.get(ip) || [])];
+    const edgey = (n) => /(akamai|edgekey|edgesuite|fastly|cloudfront|trafficmanager|azureedge|1e100|\.l\.google\.com$)/i.test(n);
+    let best = null;
+    for (const n of names) {
+      const c = classify(n, null);
+      if (c.category !== 'normal') return { domain: n, cls: c };
+      if (!best || (edgey(best) && !edgey(n)) || (edgey(best) === edgey(n) && n.length < best.length)) best = n;
+    }
+    return { domain: best, cls: classify(best, geo && geo.network) };
+  }
+
+  // Dev helper: what the DNS cache and flows looked like on the last scan
+  dumpDiagnostics(file) {
+    try {
+      const domains = Object.fromEntries([...this.domains.entries()].slice(-400).map(([ip, set]) => [ip, [...set]]));
+      fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), method: this.method, dnsCounts: this.dnsCounts || {}, domains, flows: [...this.flows.values()].slice(0, 300) }, null, 1));
+    } catch (e) {
+      console.error('[watchtower] diagnostics failed:', e.message);
+    }
+  }
+
   clear() {
     this.flows.clear();
     this.geo.clear();
@@ -244,4 +326,4 @@ class Network {
   }
 }
 
-module.exports = { Network, isPrivate, parseNetstat, parseTasklist, networkName };
+module.exports = { Network, isPrivate, parseNetstat, parseTasklist, networkName, parseDisplayDns };

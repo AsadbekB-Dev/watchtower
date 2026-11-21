@@ -117,12 +117,12 @@ export default function SettingsView({ settings, onChange }) {
         </Row>
         <Row
           title="API key"
-          desc={ai?.hasKey ? `✓ Key saved (${ai.source}). It ends in ${ai.keyHint}, shown only so you can tell which key it is.` : 'No key yet. Get a free one at aistudio.google.com → Get API key.'}
+          desc={ai?.hasKey ? `✓ Key saved, ${ai.source}. It ends in ${ai.keyHint}, shown only so you can tell which key it is.` : 'No key yet. Get a free one at aistudio.google.com → Get API key.'}
         >
           {ai?.hasKey ? (
             <div className="set-btns">
               <button className="btn" onClick={runTest} disabled={test?.status === 'running'}>{test?.status === 'running' ? 'Testing…' : 'Test connection'}</button>
-              {ai.source === 'saved in Settings' && (
+              {ai.source === 'stored on this PC' && (
                 <button className="btn ghost" onClick={async () => { await window.watchtower.ai.removeKey(); setTest(null); refreshAi(); }}>Remove</button>
               )}
             </div>

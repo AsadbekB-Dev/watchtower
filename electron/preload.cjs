@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('watchtower', {
     set: (patch) => ipcRenderer.invoke('settings:set', patch),
     clearData: () => ipcRenderer.invoke('data:clear'),
   },
+  firewall: {
+    list: () => ipcRenderer.invoke('fw:list'),
+    block: (items) => ipcRenderer.invoke('fw:block', items),
+    unblock: (rules) => ipcRenderer.invoke('fw:unblock', rules),
+  },
   appIcon: (exePath) => ipcRenderer.invoke('app:icon', exePath),
   openPrivacySettings: (cap) => ipcRenderer.invoke('settings:open', cap),
 });
