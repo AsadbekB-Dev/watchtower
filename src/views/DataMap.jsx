@@ -211,7 +211,7 @@ export default function DataMap({ net, settings }) {
           )}
           {settings?.globeQuality === 'quality' && qInfo && (
             <div className="q-badge">
-              {qInfo.failed ? 'Quality mode unavailable, showing performance mode' : qInfo.clouds === 'live' ? '● Live clouds · real sun position' : qInfo.clouds === 'built-in' ? 'Real sun position · built-in clouds (live clouds offline)' : 'Real sun position'}
+              {qInfo.failed ? 'Quality mode unavailable, showing performance mode' : qInfo.clouds === 'live' ? '● Live clouds · real sun position' : qInfo.clouds === 'built-in' ? (settings?.liveClouds ? 'Real sun position · built-in clouds (live clouds unavailable)' : 'Real sun position · built-in clouds') : 'Real sun position'}
             </div>
           )}
           {net && net.geoEnabled === false && <div className="q-badge">Map placement is off in Settings</div>}

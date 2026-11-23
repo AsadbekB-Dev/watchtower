@@ -48,10 +48,11 @@ void main() {
   float water = texture2D(waterTex, vUv).r;
   vec3 viewDir = normalize(cameraPosition - vPosW);
   vec3 r = reflect(-sunDir, n);
-  float spec = pow(max(dot(r, viewDir), 0.0), 28.0) * water * light;
-  float ripple = 0.65 + 0.35 * sin(vUv.x * 900.0 + time * 1.6) * sin(vUv.y * 650.0 - time * 1.2);
-  vec3 col = mix(night, day * (0.75 + 0.35 * max(d, 0.0)), light);
-  col += vec3(0.55, 0.68, 0.85) * spec * ripple * 0.9;
+  float spec = pow(max(dot(r, viewDir), 0.0), 18.0) * water * light;
+  // slow, low-frequency shimmer (high-frequency ripples alias into a checkerboard on screen)
+  float ripple = 0.85 + 0.15 * sin(vUv.x * 60.0 + time * 0.7) * sin(vUv.y * 45.0 - time * 0.5);
+  vec3 col = mix(night, day * (0.9 + 0.2 * max(d, 0.0)), light);
+  col += vec3(0.55, 0.68, 0.85) * spec * ripple * 0.55;
   // soft blue rim on the sunlit edge
   float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
   col += vec3(0.25, 0.5, 0.9) * rim * 0.25 * light;
@@ -78,7 +79,8 @@ function loadTexture(url) {
     loader.load(
       url,
       (t) => {
-        t.colorSpace = THREE.SRGBColorSpace;
+        // ShaderMaterial does no colour-space conversion, so keep the image's sRGB values as-is
+        t.colorSpace = THREE.NoColorSpace;
         t.anisotropy = 4;
         resolve(t);
       },
@@ -96,7 +98,6 @@ export async function createQualityGlobe({ liveClouds }) {
     loadTexture(tex('earth-night.jpg')),
     loadTexture(tex('earth-water.png')),
   ]);
-  water.colorSpace = THREE.NoColorSpace;
 
   const uniforms = { dayTex: { value: day }, nightTex: { value: night }, waterTex: { value: water }, sunDir: { value: new THREE.Vector3(1, 0, 0) }, time: { value: 0 } };
   const material = new THREE.ShaderMaterial({ uniforms, vertexShader: EARTH_VERT, fragmentShader: EARTH_FRAG });
